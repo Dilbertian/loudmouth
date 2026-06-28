@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.env
+
+# uv
+uv.lock
+.uv/
+
+# pytest
+.pytest_cache/
+htmlcov/
+.coverage
+*.cover
+
+# audio (keep sample, ignore everything else)
+audio/*
+!audio/loudmouth-test.mp3
+
+# OS
+.DS_Store
+Thumbs.db
