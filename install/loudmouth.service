@@ -1,0 +1,15 @@
+[Unit]
+Description=Loudmouth — always-on audio playback service
+After=network.target sound.target
+
+[Service]
+Type=simple
+User=loudmouth
+WorkingDirectory=/opt/loudmouth
+ExecStart=/opt/loudmouth/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

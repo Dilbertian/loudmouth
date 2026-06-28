@@ -51,7 +51,13 @@ httpx.post("http://localhost:8000/play", json={"file": "announcement.mp3"})
 
 ## Quick Start
 
-### Install
+### Install via pip
+
+```bash
+pip install loudmouth
+```
+
+### Install from source
 
 ```bash
 pip install fastapi pygame-ce uvicorn
@@ -67,15 +73,37 @@ uvicorn server:app --host 0.0.0.0 --port 8000
 
 ### Install as a service (optional)
 
+Service installation is optional — use it if you want Loudmouth to start automatically on boot and run in the background.
+
 **Linux (systemd):**
 ```bash
-sudo bash install.sh
+sudo bash install/install.sh
+```
+
+This creates a `loudmouth` system user, installs to `/opt/loudmouth`, sets up a venv, and registers + starts the systemd service.
+
+```bash
+# Check status
+systemctl status loudmouth
+
+# View logs
+journalctl -u loudmouth -f
+
+# Uninstall
+sudo bash install/uninstall.sh
 ```
 
 **Windows:**
 ```bash
-python install_service.py install
-python install_service.py start
+pip install pywin32
+python install/install_service.py install
+python install/install_service.py start
+```
+
+Other Windows service commands:
+```bash
+python install/install_service.py stop
+python install/install_service.py remove
 ```
 
 ---

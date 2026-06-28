@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "loudmouth"
+version = "0.1.0"
+description = "A lightweight, always-on audio playback service — pygame simplified."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Tim Stark", email = "tim@starktechnologies.net" }
+]
+keywords = ["audio", "pygame", "mp3", "playback", "service", "fastapi"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Players",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.138.0",
+    "pygame-ce>=2.5.7",
+    "uvicorn>=0.49.0",
+]
+
+[project.optional-dependencies]
+windows-service = ["pywin32"]
+
+[project.urls]
+Homepage = "https://github.com/Dilbertian/loudmouth"
+Repository = "https://github.com/Dilbertian/loudmouth"
+Issues = "https://github.com/Dilbertian/loudmouth/issues"
+
+[project.scripts]
+loudmouth = "server:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["loudmouth*"]
