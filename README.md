@@ -91,6 +91,15 @@ Play an audio file or raw audio bytes.
 { "file": "loudmouth-test.mp3" }
 ```
 
+**MP3 files are auto-detected** — just pass the filename, no format hint needed.
+
+For all other formats, pass the `format` field as a hint to pygame:
+```json
+{ "file": "sound.ogg", "format": "ogg" }
+```
+
+If you pass an unsupported format, Loudmouth returns a `400` with a clear error message telling you what went wrong.
+
 **Play base64-encoded audio:**
 ```json
 { "audio": "<base64-string>", "format": "mp3" }
@@ -141,16 +150,18 @@ You should hear: *"Loudmouth audio test. If you can hear this complete sentence,
 
 ## Supported Audio Formats
 
-| Format | Extension | Notes |
-|--------|-----------|-------|
-| MP3 | `.mp3` | Most common; fully supported |
-| WAV | `.wav` | Uncompressed; best latency |
-| OGG Vorbis | `.ogg` | Open format; recommended for web |
-| FLAC | `.flac` | Lossless |
-| OPUS | `.opus` | High quality at low bitrate |
-| WavPack | `.wv` | Lossless compression |
-| MOD | `.mod` | Tracker music |
-| MIDI | `.mid` | Requires system soundfont |
+| Format | Extension | Format Hint | Notes |
+|--------|-----------|-------------|-------|
+| MP3 | `.mp3` | Not required | Auto-detected from extension |
+| WAV | `.wav` | `"wav"` | Uncompressed; best latency |
+| OGG Vorbis | `.ogg` | `"ogg"` | Open format; recommended for web |
+| FLAC | `.flac` | `"flac"` | Lossless |
+| OPUS | `.opus` | `"opus"` | High quality at low bitrate |
+| WavPack | `.wv` | `"wv"` | Lossless compression |
+| MOD | `.mod` | `"mod"` | Tracker music |
+| MIDI | `.mid` | `"mid"` | Requires system soundfont |
+
+> **Tip:** When in doubt, always pass the `format` hint — it never hurts and prevents ambiguity.
 
 ---
 
