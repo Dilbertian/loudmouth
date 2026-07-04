@@ -45,16 +45,20 @@ def _start_keepalive() -> None:
     """
     global _keepalive_sound
     freq, size, channels = pygame.mixer.get_init()
-    # 150 Hz sine at ~-66 dBFS. A +/-1 LSB alternating square proved useless
-    # here: its energy sits at the Nyquist frequency, which resamplers and
-    # A-weighted silence detectors discard, so the endpoint still slept. A
-    # low-frequency tone at amplitude 16 survives the signal chain and is
-    # still ~40 dB below room noise floors.
+    # Defaults target external amps/soundbars with signal-sensing standby:
+    # their broadband analog detectors need real energy (measured ~-25 dBFS
+    # threshold on a typical unit) but 21 kHz is above human hearing, so a
+    # loud-but-ultrasonic tone holds them awake silently. Quiet low-frequency
+    # tones (-66 dBFS at 150 Hz) and LSB dither proved insufficient in
+    # practice. Override per machine via env if a device misbehaves.
     import math
     import struct
+    tone_hz = int(os.getenv("LOUDMOUTH_KEEPALIVE_HZ", "21000"))
+    tone_db = float(os.getenv("LOUDMOUTH_KEEPALIVE_DBFS", "-20"))
+    amp = int(32767 * (10 ** (tone_db / 20)))
     frames = []
     for i in range(freq):
-        v = int(16 * math.sin(2 * math.pi * 150 * i / freq))
+        v = int(amp * math.sin(2 * math.pi * tone_hz * i / freq))
         frames.append(struct.pack("<h", v) * channels)
     _keepalive_sound = pygame.mixer.Sound(buffer=b"".join(frames))
     _keepalive_sound.play(loops=-1)
