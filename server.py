@@ -45,11 +45,18 @@ def _start_keepalive() -> None:
     """
     global _keepalive_sound
     freq, size, channels = pygame.mixer.get_init()
-    bytes_per_sample = abs(size) // 8
-    pos = (b"\x01" + b"\x00" * (bytes_per_sample - 1)) * channels
-    neg = (b"\xff" * bytes_per_sample) * channels
-    one_second = (pos + neg) * (freq // 2)
-    _keepalive_sound = pygame.mixer.Sound(buffer=one_second)
+    # 150 Hz sine at ~-66 dBFS. A +/-1 LSB alternating square proved useless
+    # here: its energy sits at the Nyquist frequency, which resamplers and
+    # A-weighted silence detectors discard, so the endpoint still slept. A
+    # low-frequency tone at amplitude 16 survives the signal chain and is
+    # still ~40 dB below room noise floors.
+    import math
+    import struct
+    frames = []
+    for i in range(freq):
+        v = int(16 * math.sin(2 * math.pi * 150 * i / freq))
+        frames.append(struct.pack("<h", v) * channels)
+    _keepalive_sound = pygame.mixer.Sound(buffer=b"".join(frames))
     _keepalive_sound.play(loops=-1)
 
 
