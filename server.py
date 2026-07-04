@@ -28,6 +28,30 @@ AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio")
 # The leading underscore signals that this variable is internal to this module.
 _audio_buffer = None
 
+# Held at module level so the keep-alive Sound is never garbage-collected
+# while its channel is still looping it.
+_keepalive_sound = None
+
+
+def _start_keepalive() -> None:
+    """Loop an inaudible signal forever so the audio endpoint never sleeps.
+
+    Many output devices (Realtek codec power saving, laptop smart amps,
+    Bluetooth A2DP, HDMI receivers) mute or power down after a few seconds of
+    digital silence and need 100-500 ms to wake once real samples arrive —
+    which audibly clips the first word of each TTS clip. A ±1 LSB square wave
+    (~ -90 dBFS, far below audibility) keeps the endpoint's silence detector
+    from ever engaging, so playback reaches the speaker from sample one.
+    """
+    global _keepalive_sound
+    freq, size, channels = pygame.mixer.get_init()
+    bytes_per_sample = abs(size) // 8
+    pos = (b"\x01" + b"\x00" * (bytes_per_sample - 1)) * channels
+    neg = (b"\xff" * bytes_per_sample) * channels
+    one_second = (pos + neg) * (freq // 2)
+    _keepalive_sound = pygame.mixer.Sound(buffer=one_second)
+    _keepalive_sound.play(loops=-1)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,6 +64,7 @@ async def lifespan(app: FastAPI):
     """
     pygame.mixer.init()
     time.sleep(1.0)  # give the audio driver a moment to fully initialise
+    _start_keepalive()
     yield
     pygame.mixer.quit()
 
