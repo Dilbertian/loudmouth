@@ -2,26 +2,62 @@
 Loudmouth audio server — a lightweight HTTP wrapper around pygame's music player.
 
 Routes:
+    GET  /health — service identity: version, protocol, bound port, uptime
     POST /play   — load and play an audio file or raw audio bytes
     GET  /status — check whether audio is currently playing
     POST /stop   — stop playback
 
 Supported formats (via pygame/SDL_mixer): MP3, WAV, OGG, FLAC, OPUS, WV, MOD, MIDI
+
+Network policy:
+    Binds 127.0.0.1 by default (Loudmouth is an actuator — /play has a physical
+    effect on the host machine; a LAN-open default would let any peer drive the
+    speakers). Set LOUDMOUTH_HOST=0.0.0.0 for fleet/dev use.
+    Ports: primary 8765, fallback 8766. Both occupied → clean exit.
 """
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import base64
 import io
+import socket
+import sys
 import pygame
 import time
 import os
 
-# Absolute path to the audio/ folder next to this file, so the server works
-# regardless of which directory it is launched from.
-AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio")
+# Single source of truth for the release version — the installer, /health, and
+# any future update check all read this constant (pyproject.toml pulls it via
+# setuptools dynamic metadata; packaging scripts parse it from this file).
+__version__ = "1.0.0"
+
+# API compatibility gate. IdeaLoom's detectLoudmouth() checks
+# `protocol >= minimumProtocol` — an integer comparison, never a
+# version-string comparison. Bump ONLY on breaking API changes.
+PROTOCOL = 1
+
+# Primary and fallback ports — fixed, permanent, documented in README.
+# Port 8000 is abandoned (collision-prone dev-server favorite).
+DEFAULT_PORTS = (8765, 8766)
+
+# Loudmouth is an actuator, so CORS is a restricted allowlist — not "*".
+# Override via LOUDMOUTH_CORS_ORIGINS (comma-separated).
+DEFAULT_ALLOWED_ORIGINS = [
+    "https://idealoom.ai",
+    "https://www.idealoom.ai",
+    "http://localhost:5173",            # loom dev
+    "http://100.64.58.91:8910",         # tailnet clean-machine test path
+]
+
+# In a PyInstaller onedir build, bundled data lives in _internal (sys._MEIPASS),
+# not next to this source file. Otherwise: the audio/ folder next to this file,
+# so the server works regardless of which directory it is launched from.
+if getattr(sys, "frozen", False):
+    AUDIO_DIR = os.path.join(sys._MEIPASS, "audio")
+else:
+    AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio")
 
 # Kept at module level so Python's garbage collector does not free the BytesIO
 # buffer while pygame is still streaming from it in the background.
@@ -31,6 +67,14 @@ _audio_buffer = None
 # Held at module level so the keep-alive Sound is never garbage-collected
 # while its channel is still looping it.
 _keepalive_sound = None
+
+# Set when the mixer comes up (lifespan) — /health reports seconds since then.
+_start_time = None
+
+# Set by main() once a port is chosen. When the server is launched some other
+# way (e.g. `uvicorn server:app --port N`), /health falls back to the port
+# uvicorn reports in the request scope.
+_bound_port = None
 
 
 def _start_keepalive() -> None:
@@ -73,23 +117,74 @@ async def lifespan(app: FastAPI):
     after ``yield`` runs once when the server shuts down. FastAPI calls this
     automatically — you do not need to invoke it yourself.
     """
+    global _start_time
     pygame.mixer.init()
     time.sleep(1.0)  # give the audio driver a moment to fully initialise
     _start_keepalive()
+    _start_time = time.monotonic()
     yield
     pygame.mixer.quit()
 
 
+def allowed_origins() -> list[str]:
+    """CORS allowlist: LOUDMOUTH_CORS_ORIGINS (comma-separated) or the default."""
+    env = os.getenv("LOUDMOUTH_CORS_ORIGINS")
+    if env:
+        return [origin.strip() for origin in env.split(",") if origin.strip()]
+    return DEFAULT_ALLOWED_ORIGINS
+
+
 app = FastAPI(lifespan=lifespan)
 
-# Allow requests from any origin so the server can be called from a browser,
-# desktop app, or another service without CORS errors.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def private_network_preflight(request: Request, call_next):
+    """Mark allowed preflights as private-network-approved.
+
+    Chrome 142+ gates public-site → loopback requests behind Local Network
+    Access; earlier Chrome versions used the Private Network Access header
+    handshake. The PNA response header is retained for compatibility — without
+    it (and correct preflight handling generally) https://idealoom.ai cannot
+    detect Loudmouth at all. Registered after CORSMiddleware so it wraps it
+    (Starlette runs later-added middleware outermost) and sees the preflight
+    response CORSMiddleware short-circuits.
+    """
+    response = await call_next(request)
+    if request.method == "OPTIONS" and "access-control-allow-origin" in response.headers:
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
+
+@app.get("/health")
+async def health(request: Request):
+    """Service identity for IdeaLoom's detectLoudmouth() and human debugging.
+
+    Returns:
+        ``status``   — always ``"ok"`` if this answers at all.
+        ``version``  — release version string (single ``__version__`` source).
+        ``protocol`` — integer API-compatibility constant; consumers gate on
+                       ``protocol >= minimum``, never on version strings.
+        ``port``     — the actually bound port (8765 or fallback 8766).
+        ``uptime``   — seconds since the mixer came up.
+    """
+    port = _bound_port
+    if port is None:
+        server = request.scope.get("server")
+        port = server[1] if server else None
+    return {
+        "status": "ok",
+        "version": __version__,
+        "protocol": PROTOCOL,
+        "port": port,
+        "uptime": int(time.monotonic() - _start_time) if _start_time is not None else 0,
+    }
 
 
 class PlayRequest(BaseModel):
@@ -185,3 +280,54 @@ async def stop():
     """
     pygame.mixer.music.stop()
     return {"status": "stopped"}
+
+
+def resolve_host() -> str:
+    """Bind address: loopback-only unless LOUDMOUTH_HOST overrides (fleet/dev)."""
+    return os.getenv("LOUDMOUTH_HOST", "127.0.0.1")
+
+
+def pick_port(host: str, candidates: tuple[int, ...] = DEFAULT_PORTS) -> int:
+    """Return the first bindable port from ``candidates``.
+
+    LOUDMOUTH_PORT skips probing entirely — an explicit port is used as-is so
+    a misconfiguration fails loudly instead of silently moving ports.
+
+    Raises:
+        SystemExit: every candidate is occupied. The message names the ports
+            so a support log line is enough to diagnose.
+    """
+    env = os.getenv("LOUDMOUTH_PORT")
+    if env:
+        return int(env)
+    for port in candidates:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.bind((host, port))
+        except OSError:
+            continue
+        finally:
+            probe.close()
+        return port
+    ports = ", ".join(str(p) for p in candidates)
+    print(f"Loudmouth: ports {ports} are all in use — exiting.", file=sys.stderr, flush=True)
+    raise SystemExit(1)
+
+
+def main() -> None:
+    """Run the server with the consumer port policy (8765, fallback 8766).
+
+    This is the entry point for the packaged Windows build and run scripts.
+    The probe in pick_port() and uvicorn's own bind are not atomic; the tiny
+    race is acceptable — uvicorn still fails cleanly if the port is stolen.
+    """
+    global _bound_port
+    import uvicorn
+
+    host = resolve_host()
+    _bound_port = pick_port(host)
+    uvicorn.run(app, host=host, port=_bound_port)
+
+
+if __name__ == "__main__":
+    main()

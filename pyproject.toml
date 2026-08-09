@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loudmouth"
-version = "0.1.0"
+# Version single-source: server.__version__ (read via AST, no import needed)
+dynamic = ["version"]
 description = "A lightweight, always-on audio playback service — pygame simplified."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -43,3 +44,6 @@ loudmouth = "server:app"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["loudmouth*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "server.__version__" }
