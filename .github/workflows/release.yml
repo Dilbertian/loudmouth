@@ -1,0 +1,121 @@
+# Loudmouth release pipeline: tag -> test -> build -> sign -> release.
+#
+# Trigger:  push a tag like v1.0.0 (must match __version__ in server.py).
+# Output:   GitHub Release with stably-named assets:
+#             LoudmouthSetup-<version>.exe
+#             SHA256SUMS.txt
+#           (idealoom.ai/download/loudmouth redirects to the latest asset —
+#            nginx redirect lives on Helios, handled in the loom sprint.)
+#
+# Signing:  Azure Trusted Signing (Artifact Signing), both layers, timestamped.
+#           Runs only when the AZURE_* / TRUSTED_SIGNING_* secrets are set —
+#           unsigned releases are fine for internal testing; sign from first
+#           external beta. Builds always run from clean CI, never a dev box.
+#
+# Pre-release manual step (not automated): multi-engine AV scan of BOTH
+# artifacts (e.g. VirusTotal) before announcing the download link.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      HAVE_SIGNING: ${{ secrets.AZURE_TENANT_ID != '' && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx pyinstaller
+
+      - name: Verify tag matches server.py version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path server.py -Pattern '^__version__\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          if ($v -ne $tag) { throw "Tag v$tag does not match server.py __version__ $v" }
+          echo "VERSION=$v" >> $env:GITHUB_ENV
+
+      - name: Run tests
+        run: python -m pytest test_server.py -q
+
+      - name: Build app (PyInstaller onedir)
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -SkipTests -SkipInstaller
+
+      - name: Sign loudmouth.exe (Azure Trusted Signing)
+        if: env.HAVE_SIGNING == 'true'
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files-folder: dist\Loudmouth
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" packaging\loudmouth.iss
+          if (-not (Test-Path "dist\LoudmouthSetup-$env:VERSION.exe")) { throw "installer not produced" }
+
+      - name: Sign installer (Azure Trusted Signing)
+        if: env.HAVE_SIGNING == 'true'
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files: dist\LoudmouthSetup-${{ env.VERSION }}.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $exe = "LoudmouthSetup-$env:VERSION.exe"
+          $hash = (Get-FileHash "dist\$exe" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $exe" | Out-File -Encoding ascii dist\SHA256SUMS.txt
+          Get-Content dist\SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/LoudmouthSetup-${{ env.VERSION }}.exe
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            **Windows consumer package** — one download, one install, zero dependencies.
+
+            1. Download `LoudmouthSetup-${{ env.VERSION }}.exe`
+            2. Run it (admin prompt expected)
+            3. Loudmouth starts now and at every logon — verify at http://127.0.0.1:8765/health
+
+            Signed status: ${{ env.HAVE_SIGNING == 'true' && 'Authenticode-signed (Azure Trusted Signing), timestamped' || 'UNSIGNED build — internal testing only' }}
