@@ -60,7 +60,7 @@ jobs:
 
       - name: Sign loudmouth.exe (Azure Trusted Signing)
         if: env.HAVE_SIGNING == 'true'
-        uses: azure/trusted-signing-action@v0
+        uses: azure/trusted-signing-action@v2
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -77,12 +77,17 @@ jobs:
       - name: Build installer (Inno Setup)
         shell: pwsh
         run: |
+          # Asset-name contract (sprint brief §2.4): the installer MUST ship as
+          # LoudmouthSetup-<version>.exe. An empty VERSION would silently
+          # produce a mangled/unversioned name — fail loudly instead.
+          if ([string]::IsNullOrWhiteSpace($env:VERSION)) { throw "VERSION not set - cannot name the installer asset" }
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" packaging\loudmouth.iss
-          if (-not (Test-Path "dist\LoudmouthSetup-$env:VERSION.exe")) { throw "installer not produced" }
+          if (-not (Test-Path "dist\LoudmouthSetup-$env:VERSION.exe")) { throw "versioned installer not produced" }
+          if (Test-Path "dist\LoudmouthSetup.exe") { throw "unversioned LoudmouthSetup.exe artifact present - naming contract violated" }
 
       - name: Sign installer (Azure Trusted Signing)
         if: env.HAVE_SIGNING == 'true'
-        uses: azure/trusted-signing-action@v0
+        uses: azure/trusted-signing-action@v2
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
