@@ -6,10 +6,13 @@ After=network.target sound.target
 Type=simple
 User=loudmouth
 WorkingDirectory=/opt/loudmouth
-ExecStart=/opt/loudmouth/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/loudmouth/venv/bin/python /opt/loudmouth/server.py
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+# Fleet install: reachable on the LAN, standard port 8765 (fallback 8766).
+# Remove LOUDMOUTH_HOST to lock down to loopback-only.
+Environment=LOUDMOUTH_HOST=0.0.0.0
 
 [Install]
 WantedBy=multi-user.target

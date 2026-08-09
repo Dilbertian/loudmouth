@@ -21,10 +21,9 @@ sys.stderr = log
 os.chdir(BASE_DIR)
 sys.path.insert(0, BASE_DIR)
 
-import uvicorn
+# server.main() applies the standard policy: bind 127.0.0.1 (LOUDMOUTH_HOST
+# overrides for fleet use), port 8765 with fallback 8766 (LOUDMOUTH_PORT
+# overrides). Port 8000 is abandoned.
+from server import main
 
-uvicorn.run(
-    "server:app",
-    host=os.getenv("LOUDMOUTH_HOST", "0.0.0.0"),
-    port=int(os.getenv("LOUDMOUTH_PORT", "8000")),
-)
+main()

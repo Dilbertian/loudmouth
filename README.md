@@ -1,10 +1,10 @@
 # Loudmouth
 
-**A lightweight, always-on audio playback service for Python applications.**
+**A lightweight, always-on audio playback service.**
 
 > *"pygame, simplified. Two lines of code instead of an all-day project."*
 
-Built by **Stark Technologies** — Lead Developer: Tim Stark  
+Built by **Stark Technologies** — Lead Developer: Tim Stark
 Developed with assistance from Claude Code (Anthropic) and Walter (Hermes Agent, Nous Research)
 
 ---
@@ -32,147 +32,198 @@ pygame.mixer.quit()
 ### With Loudmouth
 ```python
 import httpx
-httpx.post("http://localhost:8000/play", json={"file": "announcement.mp3"})
+httpx.post("http://127.0.0.1:8765/play", json={"file": "announcement.mp3"})
 ```
 
 ---
 
 ## Features
 
-- **Always-on** — runs as a systemd service (Linux) or Windows Service; starts on boot
-- **HTTP API** — play, stop, and check status from any language or tool
+- **Always-on** — Windows consumer installer (starts at logon), systemd service (Linux), or Windows Service; zero babysitting
+- **Zero-dependency Windows install** — one download, one installer; no Python, no pip, no console window
+- **HTTP API** — play, stop, check status, and health-check from any language or tool
 - **Multi-format** — MP3, WAV, OGG, FLAC, OPUS, WV, MOD, MIDI (via pygame/SDL_mixer)
 - **Base64 audio** — stream raw audio bytes directly without touching the filesystem
 - **Path-safe** — directory traversal attacks blocked at the API layer
-- **CORS-enabled** — call it from a browser, desktop app, or another service
+- **Secure by default** — binds loopback only; CORS restricted to an explicit allowlist
 - **Lightweight** — FastAPI + pygame, no database, no config files
 
 ---
 
-## Quick Start
+## Install (Windows — consumers)
 
-### Install via pip
+1. Download the installer: **[idealoom.ai/download/loudmouth](https://idealoom.ai/download/loudmouth)** (redirects to the latest [GitHub Release](https://github.com/Dilbertian/loudmouth/releases) asset `LoudmouthSetup-<version>.exe`)
+2. Run it — installs to `%ProgramFiles%\Stark\Loudmouth`, registers a logon task, and starts Loudmouth immediately
+3. Verify: open `http://127.0.0.1:8765/health` — you should see JSON with `"status": "ok"`
 
-```bash
-pip install loudmouth
+Uninstall from **Settings → Apps** — removes the scheduled task, the install directory, and log files. No leftovers.
+
+**Known limitation:** the logon task is per-user, so Loudmouth runs only while that Windows user is logged in. This is the correct behavior for consumer machines.
+
+Silent install (fleet/enterprise):
+```
+LoudmouthSetup-<version>.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ```
 
-### Install from source
+---
+
+## Install (developers / fleet)
+
+### From source
 
 ```bash
 pip install fastapi pygame-ce uvicorn
-# or with uv:
-uv sync
+python server.py
 ```
 
-### Run manually
+`python server.py` applies the standard policy: bind `127.0.0.1`, port `8765` (fallback `8766`). Override via environment:
 
-```bash
-uvicorn server:app --host 0.0.0.0 --port 8000
-```
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LOUDMOUTH_HOST` | `127.0.0.1` | Set `0.0.0.0` for fleet/LAN use — deliberate opt-in, since `/play` drives the machine's speakers |
+| `LOUDMOUTH_PORT` | `8765` → `8766` | Explicit port; skips the fallback probe entirely |
+| `LOUDMOUTH_CORS_ORIGINS` | see [CORS](#cors--browser-access) | Comma-separated origin allowlist |
+| `LOUDMOUTH_KEEPALIVE_HZ` | `21000` | Keep-alive tone frequency |
+| `LOUDMOUTH_KEEPALIVE_DBFS` | `-20` | Keep-alive tone level |
 
-### Install as a service (optional)
-
-Service installation is optional — use it if you want Loudmouth to start automatically on boot and run in the background.
+### As a service
 
 **Linux (systemd):**
 ```bash
 sudo bash install/install.sh
+systemctl status loudmouth     # check
+journalctl -u loudmouth -f     # logs
+sudo bash install/uninstall.sh # remove
 ```
 
-This creates a `loudmouth` system user, installs to `/opt/loudmouth`, sets up a venv, and registers + starts the systemd service.
-
-```bash
-# Check status
-systemctl status loudmouth
-
-# View logs
-journalctl -u loudmouth -f
-
-# Uninstall
-sudo bash install/uninstall.sh
-```
-
-**Windows:**
+**Windows (from source, pywin32 service):**
 ```bash
 pip install pywin32
 python install/install_service.py install
 python install/install_service.py start
 ```
 
-Other Windows service commands:
-```bash
-python install/install_service.py stop
-python install/install_service.py remove
-```
+---
+
+## Port policy
+
+**Primary `8765`, fallback `8766`. Fixed and permanent.**
+
+- On startup Loudmouth tries `8765`; if occupied it tries `8766`; if both are occupied it logs clearly and exits.
+- `GET /health` always reports the **actual bound port**.
+- Clients should probe `8765` first, then `8766`.
+- Port `8000` (pre-1.0) is abandoned.
 
 ---
 
 ## API Reference
 
+### `GET /health`
+
+Service identity — used by IdeaLoom's `detectLoudmouth()` and by humans debugging "voice isn't working."
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "version": "1.0.0",
+  "protocol": 1,
+  "port": 8765,
+  "uptime": 18342
+}
+```
+
+- `protocol` is an **integer** API-compatibility constant. Consumers must gate on `protocol >= minimumProtocol` — never compare version strings. It bumps only on breaking API changes.
+- `version` is the human-readable release version (single source: `server.__version__`).
+- `uptime` is seconds since the audio mixer came up.
+
 ### `POST /play`
 
-Play an audio file or raw audio bytes.
+Play an audio file or raw audio bytes. Only one stream at a time; a new call replaces the current track.
 
 **Play a file from the `audio/` folder:**
 ```json
 { "file": "loudmouth-test.mp3" }
 ```
 
-**MP3 files are auto-detected** — just pass the filename, no format hint needed.
-
-For all other formats, pass the `format` field as a hint to pygame:
+**MP3 files are auto-detected** — just pass the filename. For other formats, pass the `format` hint:
 ```json
 { "file": "sound.ogg", "format": "ogg" }
 ```
-
-If you pass an unsupported format, Loudmouth returns a `400` with a clear error message telling you what went wrong.
 
 **Play base64-encoded audio:**
 ```json
 { "audio": "<base64-string>", "format": "mp3" }
 ```
 
-**Response:**
-```json
-{ "status": "playing" }
-```
-
----
+**Response:** `{ "status": "playing" }`
+**Errors:** `400` invalid base64 / unsupported format / missing fields, `404` file not found.
 
 ### `GET /status`
 
-Check whether audio is currently playing.
-
-**Response:**
-```json
-{ "playing": true }
-```
-
----
+**Response:** `{ "playing": true }`
 
 ### `POST /stop`
 
-Stop playback immediately.
+**Response:** `{ "status": "stopped" }`
 
-**Response:**
-```json
-{ "status": "stopped" }
+---
+
+## Detection contract (for IdeaLoom and other web clients)
+
+The browser-side `detectLoudmouth()` flow consumes these states:
+
 ```
+GET http://127.0.0.1:8765/health  (fallback :8766)
+  → 200 + JSON          → AVAILABLE (check protocol >= minimum)
+  → 200, old protocol   → INCOMPATIBLE_VERSION
+  → connection refused  → NOT_FOUND (not installed or not running)
+  → LNA prompt pending  → PERMISSION_REQUIRED (browser-side state)
+  → user denied         → PERMISSION_DENIED (browser-side state)
+  → wrong browser       → UNSUPPORTED_BROWSER (Safari/macOS)
+```
+
+### Supported browsers (v1)
+
+| Browser | Windows | macOS |
+|---------|---------|-------|
+| Chrome | ✅ (LNA permission prompt on first use, Chrome 142+) | ❌ |
+| Edge | ✅ | ❌ |
+| Firefox | ✅ (no LNA prompt; failures surface as network errors) | ❌ |
+| Safari | — | ❌ unsupported until a macOS package exists |
+
+---
+
+## CORS & browser access
+
+Loudmouth is an **actuator** — `/play` has a physical effect on the machine — so CORS is a restricted allowlist, not `*`. Default allowed origins:
+
+```
+https://idealoom.ai
+https://www.idealoom.ai
+http://localhost:5173            (loom dev)
+http://100.64.58.91:8910         (tailnet clean-machine test path)
+```
+
+Override with `LOUDMOUTH_CORS_ORIGINS` (comma-separated). Requests from non-allowlisted origins get no CORS headers.
+
+Preflights (`OPTIONS`) are answered for all endpoints, including the `Access-Control-Allow-Private-Network: true` response header — required for public-site → loopback requests under Chrome's Private Network Access / Local Network Access model.
 
 ---
 
 ## Test Your Installation
 
-A sample audio file is included at `audio/loudmouth-test.mp3`. With the service running:
+A sample audio file ships with every install. With the service running:
 
 ```bash
-curl -X POST http://localhost:8000/play \
+curl -X POST http://127.0.0.1:8765/play \
   -H "Content-Type: application/json" \
   -d '{"file": "loudmouth-test.mp3"}'
 ```
 
 You should hear: *"Loudmouth audio test. If you can hear this complete sentence, your installation is working correctly. One. Two. Three."*
+
+Logs (packaged Windows build): `%LOCALAPPDATA%\Loudmouth\loudmouth.log`
 
 ---
 
@@ -193,10 +244,24 @@ You should hear: *"Loudmouth audio test. If you can hear this complete sentence,
 
 ---
 
+## Building the Windows package
+
+Requires Python 3.10+, PyInstaller, and Inno Setup 6:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+```
+
+Produces `dist\Loudmouth\` (onedir app) and `dist\LoudmouthSetup-<version>.exe` plus `dist\SHA256SUMS.txt`. See [packaging/](packaging/) for the spec, installer script, and signing wiring (Azure Trusted Signing — unsigned builds are fine for internal testing).
+
+Releases are automated: push a tag `v<version>` matching `server.__version__` and CI builds, signs (when secrets are configured), and publishes the GitHub Release. Manual pre-release smoke test checklist: [docs/smoke-test.md](docs/smoke-test.md).
+
+---
+
 ## Use Cases
 
 - **Confroom** — room audio announcements and TTS playback
-- **ApexFuture.AI** — website audio and AI agent voice output
+- **IdeaLoom / ApexFuture.AI** — website audio and AI agent voice output
 - **Home automation** — trigger audio from any smart home event
 - **Any Python app** — add reliable audio in two lines
 

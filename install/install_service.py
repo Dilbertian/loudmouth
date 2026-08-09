@@ -54,13 +54,10 @@ class LoudmouthService(win32serviceutil.ServiceFramework):
         python_exe = sys.executable
         server_path = os.path.join(base_dir, "server.py")
 
+        # server.main() applies the standard policy: 127.0.0.1 + port
+        # 8765/8766 fallback; LOUDMOUTH_HOST / LOUDMOUTH_PORT override.
         self.process = subprocess.Popen(
-            [
-                python_exe, "-m", "uvicorn",
-                "server:app",
-                "--host", "0.0.0.0",
-                "--port", "8000",
-            ],
+            [python_exe, os.path.join(base_dir, "server.py")],
             cwd=base_dir,
         )
 
