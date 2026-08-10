@@ -31,7 +31,7 @@ import os
 # Single source of truth for the release version — the installer, /health, and
 # any future update check all read this constant (pyproject.toml pulls it via
 # setuptools dynamic metadata; packaging scripts parse it from this file).
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 # API compatibility gate. IdeaLoom's detectLoudmouth() checks
 # `protocol >= minimumProtocol` — an integer comparison, never a
