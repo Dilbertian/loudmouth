@@ -47,6 +47,7 @@ DEFAULT_PORTS = (8765, 8766)
 DEFAULT_ALLOWED_ORIGINS = [
     "https://idealoom.ai",
     "https://www.idealoom.ai",
+    "https://app.idealoom.ai",          # the production app origin
     "http://localhost:5173",            # loom dev
     "http://100.64.58.91:8910",         # tailnet clean-machine test path
 ]

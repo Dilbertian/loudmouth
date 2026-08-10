@@ -284,6 +284,18 @@ class TestCors:
         assert "https://idealoom.ai" in origins
         assert "*" not in origins
 
+    def test_production_app_origin_allowed(self, client):
+        """F13 regression: https://app.idealoom.ai is where the production
+        SPA actually runs — a healthy server was CORS-blocking it."""
+        resp = client.options("/play", headers={
+            "Origin": "https://app.idealoom.ai",
+            "Access-Control-Request-Method": "POST",
+        })
+
+        assert resp.status_code == 200
+        assert resp.headers["access-control-allow-origin"] == "https://app.idealoom.ai"
+        assert resp.headers["access-control-allow-private-network"] == "true"
+
 
 # ---------------------------------------------------------------------------
 # Bind address + port policy (8765 → 8766 → clean exit)
