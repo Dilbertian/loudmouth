@@ -54,6 +54,17 @@ VersionInfoDescription={#AppName} audio server installer
 [Files]
 Source: "..\dist\Loudmouth\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[Icons]
+; Start menu entry (F15) — without it users hunt for the install and conclude
+; nothing happened. The Comment surfaces as the tooltip: launch-on-login is
+; already configured, clicking it is only needed after a manual stop.
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; \
+    Comment: "Audio server for IdeaLoom voice — starts automatically when you sign in; IdeaLoom finds it on its own."
+
+[Messages]
+; Visible install feedback (F14) — the app itself is headless.
+FinishedLabel=Setup has finished installing [name] on your computer.%n%nLoudmouth is now running in the background — IdeaLoom will find it automatically. It also starts by itself each time you sign in to Windows.
+
 [Run]
 ; Per-user logon task. schtasks runs elevated here; on a consumer machine the
 ; elevating user is the logged-in user, so the task registers for them.
