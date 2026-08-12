@@ -50,6 +50,11 @@ UninstallDisplayName={#AppName} Audio Server
 VersionInfoVersion={#AppVersion}
 VersionInfoCompany={#Publisher}
 VersionInfoDescription={#AppName} audio server installer
+; F42: complete the version-info block. NOTE: the wizard fields above already
+; carried AppPublisher — the "no publisher" the field saw is the UAC/
+; SmartScreen dialog, which only trusts a CODE SIGNATURE (F40, Azure Trusted
+; Signing — the external-beta gate). Publisher entity string is Tim's call.
+VersionInfoCopyright=Copyright (C) 2026 {#Publisher}
 
 [Files]
 Source: "..\dist\Loudmouth\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

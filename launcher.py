@@ -82,10 +82,15 @@ def _notify_first_run() -> None:
 
     def show():
         try:
-            MB_ICONINFORMATION, MB_SETFOREGROUND, MB_TOPMOST = 0x40, 0x10000, 0x40000
+            # F41 (field run 2026-08-12): the box popped BEHIND other windows
+            # on a real install. TOPMOST alone can lose to the installer's own
+            # elevation context; SYSTEMMODAL forces the WS_EX_TOPMOST z-order
+            # from a background process (the classic reliable combination).
+            MB_ICONINFORMATION, MB_SYSTEMMODAL = 0x40, 0x1000
+            MB_SETFOREGROUND, MB_TOPMOST = 0x10000, 0x40000
             ctypes.windll.user32.MessageBoxW(
                 None, FIRST_RUN_MESSAGE, "Loudmouth is running",
-                MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST,
+                MB_ICONINFORMATION | MB_SYSTEMMODAL | MB_SETFOREGROUND | MB_TOPMOST,
             )
         except Exception:
             pass  # notification is best-effort — never take the server down
