@@ -18,10 +18,11 @@ Network policy:
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 import base64
 import io
+import json
 import socket
 import sys
 import pygame
@@ -31,7 +32,7 @@ import os
 # Single source of truth for the release version — the installer, /health, and
 # any future update check all read this constant (pyproject.toml pulls it via
 # setuptools dynamic metadata; packaging scripts parse it from this file).
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 # API compatibility gate. IdeaLoom's detectLoudmouth() checks
 # `protocol >= minimumProtocol` — an integer comparison, never a
@@ -51,6 +52,12 @@ DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:5173",            # loom dev
     "http://100.64.58.91:8910",         # tailnet clean-machine test path
 ]
+
+# Callers may activate only an app/origin pair shipped in this trusted registry.
+TRUSTED_APPLICATIONS = {
+    "idealoom": set(DEFAULT_ALLOWED_ORIGINS),
+    "zanmyo": {"https://zen.zanmyo.com"},
+}
 
 # In a PyInstaller onedir build, bundled data lives in _internal (sys._MEIPASS),
 # not next to this source file. Otherwise: the audio/ folder next to this file,
@@ -127,40 +134,93 @@ async def lifespan(app: FastAPI):
     pygame.mixer.quit()
 
 
+def registration_path() -> str:
+    root = os.getenv("LOUDMOUTH_STATE_DIR") or os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Loudmouth"
+    )
+    return os.path.join(root, "integrations.json")
+
+
+def registered_origins() -> set[str]:
+    try:
+        with open(registration_path(), encoding="utf-8") as fh:
+            apps = json.load(fh).get("applications", [])
+    except (OSError, ValueError, TypeError):
+        return set()
+    return {origin for app_id in apps for origin in TRUSTED_APPLICATIONS.get(app_id, set())}
+
+
 def allowed_origins() -> list[str]:
-    """CORS allowlist: LOUDMOUTH_CORS_ORIGINS (comma-separated) or the default."""
+    """Configured defaults plus origins activated by trusted applications."""
     env = os.getenv("LOUDMOUTH_CORS_ORIGINS")
-    if env:
-        return [origin.strip() for origin in env.split(",") if origin.strip()]
-    return DEFAULT_ALLOWED_ORIGINS
+    configured = ([origin.strip() for origin in env.split(",") if origin.strip()]
+                  if env else list(DEFAULT_ALLOWED_ORIGINS))
+    return sorted(set(configured) | registered_origins())
+
+
+def register_application(app_id: str, origin: str) -> bool:
+    app_id = app_id.lower()
+    if origin not in TRUSTED_APPLICATIONS.get(app_id, set()):
+        return False
+    path = registration_path()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            apps = set(json.load(fh).get("applications", []))
+    except (OSError, ValueError, TypeError):
+        apps = set()
+    apps.add(app_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"applications": sorted(apps)}, fh)
+    os.replace(tmp, path)
+    return True
 
 
 app = FastAPI(lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins(),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 @app.middleware("http")
-async def private_network_preflight(request: Request, call_next):
-    """Mark allowed preflights as private-network-approved.
-
-    Chrome 142+ gates public-site → loopback requests behind Local Network
-    Access; earlier Chrome versions used the Private Network Access header
-    handshake. The PNA response header is retained for compatibility — without
-    it (and correct preflight handling generally) https://idealoom.ai cannot
-    detect Loudmouth at all. Registered after CORSMiddleware so it wraps it
-    (Starlette runs later-added middleware outermost) and sees the preflight
-    response CORSMiddleware short-circuits.
-    """
-    response = await call_next(request)
-    if request.method == "OPTIONS" and "access-control-allow-origin" in response.headers:
+async def trusted_cors(request: Request, call_next):
+    """Dynamic exact-origin CORS with a bootstrap path for trusted apps."""
+    origin = request.headers.get("origin")
+    bootstrap = request.url.path == "/v1/integrations/register" and any(
+        origin in origins for origins in TRUSTED_APPLICATIONS.values()
+    )
+    allowed = bool(origin and (origin in allowed_origins() or bootstrap))
+    if request.method == "OPTIONS":
+        if not allowed:
+            return Response("Disallowed CORS origin", status_code=400)
+        response = Response(status_code=200)
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = request.headers.get(
+            "access-control-request-headers", "content-type"
+        )
+        response.headers["Access-Control-Max-Age"] = "600"
         response.headers["Access-Control-Allow-Private-Network"] = "true"
+    else:
+        response = await call_next(request)
+    if allowed:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
     return response
+
+
+class IntegrationRequest(BaseModel):
+    app_id: str
+    protocol_version: int = PROTOCOL
+
+
+@app.post("/v1/integrations/register")
+async def register_integration(request: Request, registration: IntegrationRequest):
+    origin = request.headers.get("origin", "")
+    app_id = registration.app_id.lower()
+    if registration.protocol_version > PROTOCOL:
+        raise HTTPException(status_code=409, detail="Unsupported Loudmouth protocol")
+    if not register_application(app_id, origin):
+        raise HTTPException(status_code=403, detail="Application/origin is not trusted")
+    return {"status": "registered", "app_id": app_id, "origin": origin,
+            "protocol": PROTOCOL, "idempotent": True}
 
 
 @app.get("/health")

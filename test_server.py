@@ -297,6 +297,60 @@ class TestCors:
         assert resp.headers["access-control-allow-private-network"] == "true"
 
 
+class TestTrustedIntegrationRegistration:
+    ZANMYO = "https://zen.zanmyo.com"
+
+    @pytest.fixture(autouse=True)
+    def isolated_state(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("LOUDMOUTH_STATE_DIR", str(tmp_path))
+        monkeypatch.delenv("LOUDMOUTH_CORS_ORIGINS", raising=False)
+
+    def test_trusted_origin_can_bootstrap_registration(self, client):
+        preflight = client.options("/v1/integrations/register", headers={
+            "Origin": self.ZANMYO, "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        })
+        assert preflight.status_code == 200
+        assert preflight.headers["access-control-allow-origin"] == self.ZANMYO
+        response = client.post("/v1/integrations/register",
+            headers={"Origin": self.ZANMYO},
+            json={"app_id": "zanmyo", "protocol_version": 1})
+        assert response.status_code == 200
+        assert response.json()["status"] == "registered"
+        play = client.options("/play", headers={
+            "Origin": self.ZANMYO, "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        })
+        assert play.status_code == 200
+        assert play.headers["access-control-allow-origin"] == self.ZANMYO
+
+    def test_registration_is_idempotent(self, client):
+        payload = {"app_id": "zanmyo", "protocol_version": 1}
+        first = client.post("/v1/integrations/register", headers={"Origin": self.ZANMYO}, json=payload)
+        second = client.post("/v1/integrations/register", headers={"Origin": self.ZANMYO}, json=payload)
+        assert first.status_code == second.status_code == 200
+        assert second.json()["idempotent"] is True
+
+    def test_arbitrary_origin_cannot_register(self, client):
+        response = client.post("/v1/integrations/register",
+            headers={"Origin": EVIL_ORIGIN},
+            json={"app_id": "zanmyo", "protocol_version": 1})
+        assert response.status_code == 403
+        assert "access-control-allow-origin" not in response.headers
+
+    def test_trusted_origin_cannot_impersonate_another_app(self, client):
+        response = client.post("/v1/integrations/register",
+            headers={"Origin": self.ZANMYO},
+            json={"app_id": "idealoom", "protocol_version": 1})
+        assert response.status_code == 403
+
+    def test_future_protocol_is_rejected(self, client):
+        response = client.post("/v1/integrations/register",
+            headers={"Origin": self.ZANMYO},
+            json={"app_id": "zanmyo", "protocol_version": 999})
+        assert response.status_code == 409
+
+
 # ---------------------------------------------------------------------------
 # Bind address + port policy (8765 → 8766 → clean exit)
 # ---------------------------------------------------------------------------
