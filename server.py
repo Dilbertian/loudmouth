@@ -65,7 +65,12 @@ TRUSTED_APPLICATIONS = {
 if getattr(sys, "frozen", False):
     AUDIO_DIR = os.path.join(sys._MEIPASS, "audio")
 else:
-    AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio")
+    _here = os.path.dirname(os.path.abspath(__file__))
+    _pkg_audio = os.path.join(_here, "loudmouth", "audio")
+    if not os.path.isdir(os.path.join(_here, "audio")) and os.path.isdir(_pkg_audio):
+        AUDIO_DIR = _pkg_audio
+    else:
+        AUDIO_DIR = os.path.join(_here, "audio")
 
 # Kept at module level so Python's garbage collector does not free the BytesIO
 # buffer while pygame is still streaming from it in the background.

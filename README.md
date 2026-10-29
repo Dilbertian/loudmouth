@@ -69,6 +69,13 @@ LoudmouthSetup-<version>.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 
 ## Install (developers / fleet)
 
+### From PyPI
+
+```bash
+pip install loudmouth
+loudmouth
+```
+
 ### From source
 
 ```bash
@@ -126,7 +133,7 @@ Service identity — used by IdeaLoom's `detectLoudmouth()` and by humans debugg
 ```json
 {
   "status": "ok",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "protocol": 1,
   "port": 8765,
   "uptime": 18342
@@ -201,9 +208,12 @@ Loudmouth is an **actuator** — `/play` has a physical effect on the machine �
 ```
 https://idealoom.ai
 https://www.idealoom.ai
+https://app.idealoom.ai
 http://localhost:5173            (loom dev)
 http://100.64.58.91:8910         (tailnet clean-machine test path)
 ```
+
+Trusted applications (`idealoom`, `zanmyo`) can also activate their shipped origin via `POST /v1/integrations/register` (`{"app_id": "zanmyo", "protocol_version": 1}`).
 
 Override with `LOUDMOUTH_CORS_ORIGINS` (comma-separated). Requests from non-allowlisted origins get no CORS headers.
 

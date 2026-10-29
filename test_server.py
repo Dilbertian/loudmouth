@@ -418,3 +418,20 @@ class TestBindPolicy:
         monkeypatch.setenv("LOUDMOUTH_PORT", "9999")
 
         assert server.pick_port("127.0.0.1") == 9999
+
+
+class TestPackagingContract:
+    def test_loudmouth_package_reexports_server(self):
+        import loudmouth
+
+        assert loudmouth.__version__ == server.__version__
+        assert loudmouth.app is server.app
+        assert loudmouth.main is server.main
+
+    def test_pyproject_script_entrypoint_targets_main(self):
+        import pathlib
+
+        pyproject = (pathlib.Path(__file__).resolve().parent / "pyproject.toml").read_text(encoding="utf-8")
+        assert 'loudmouth = "server:main"' in pyproject
+        assert 'py-modules = ["server", "launcher"]' in pyproject
+

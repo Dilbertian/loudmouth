@@ -6,28 +6,31 @@ build-backend = "setuptools.build_meta"
 name = "loudmouth"
 # Version single-source: server.__version__ (read via AST, no import needed)
 dynamic = ["version"]
-description = "A lightweight, always-on audio playback service — pygame simplified."
+description = "A lightweight, always-on HTTP audio playback service — pygame simplified."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
     { name = "Tim Stark", email = "tim@starktechnologies.net" }
 ]
-keywords = ["audio", "pygame", "mp3", "playback", "service", "fastapi"]
+keywords = ["audio", "pygame", "mp3", "playback", "service", "fastapi", "tts"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Sound/Audio :: Players",
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi>=0.138.0",
-    "pygame-ce>=2.5.7",
-    "uvicorn>=0.49.0",
+    "fastapi>=0.100.0",
+    "pygame-ce>=2.5.0",
+    "uvicorn>=0.24.0",
 ]
 
 [project.optional-dependencies]
@@ -39,11 +42,15 @@ Repository = "https://github.com/Dilbertian/loudmouth"
 Issues = "https://github.com/Dilbertian/loudmouth/issues"
 
 [project.scripts]
-loudmouth = "server:app"
+loudmouth = "server:main"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["loudmouth*"]
+[tool.setuptools]
+py-modules = ["server", "launcher"]
+packages = ["loudmouth"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+loudmouth = ["audio/*.mp3"]
 
 [tool.setuptools.dynamic]
 version = { attr = "server.__version__" }
