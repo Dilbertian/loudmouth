@@ -3,12 +3,12 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "loudmouth"
+name = "loudmouth-audio"
 # Version single-source: server.__version__ (read via AST, no import needed)
 dynamic = ["version"]
 description = "A lightweight, always-on HTTP audio playback service — pygame simplified."
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
 authors = [
     { name = "Tim Stark", email = "tim@starktechnologies.net" }
 ]
@@ -16,7 +16,6 @@ keywords = ["audio", "pygame", "mp3", "playback", "service", "fastapi", "tts"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",

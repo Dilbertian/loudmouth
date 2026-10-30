@@ -72,7 +72,7 @@ LoudmouthSetup-<version>.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ### From PyPI
 
 ```bash
-pip install loudmouth
+pip install loudmouth-audio-audio
 loudmouth
 ```
 
